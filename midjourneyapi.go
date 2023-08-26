@@ -6,6 +6,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"strings"
 )
 
 const host = "https://api.midjourneyapi.io/v2"
@@ -83,13 +85,26 @@ func (self *Client) ImagineResult(taskId string, position ...int) (*ImagineResul
 }
 
 type DescribeResponse struct {
-	TaskId string `json:"task_id"`
+	TaskId string `json:"taskId"`
+}
+
+var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
+
+func escapeQuotes(s string) string {
+	return quoteEscaper.Replace(s)
 }
 
 func (self *Client) Describe(image io.Reader, callbackURL ...string) (string, error) {
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	w, err := mw.CreateFormFile("image", "image.jpg")
+	var reqbody bytes.Buffer
+	mw := multipart.NewWriter(&reqbody)
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="image"; filename="image.jpg"`)
+
+	// todo: add correct mime type detection by read Peek bytes from image
+	h.Set("Content-Type", "image/jpeg")
+
+	w, err := mw.CreatePart(h)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +123,7 @@ func (self *Client) Describe(image io.Reader, callbackURL ...string) (string, er
 		return "", err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, host+"/describe", &body)
+	req, err := http.NewRequest(http.MethodPost, host+"/describe", &reqbody)
 	if err != nil {
 		return "", err
 	}
@@ -120,8 +135,13 @@ func (self *Client) Describe(image io.Reader, callbackURL ...string) (string, er
 		return "", err
 	}
 
+	resbody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
 	var result DescribeResponse
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(resbody, &result); err != nil {
 		return "", err
 	}
 
