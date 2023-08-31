@@ -3,6 +3,7 @@ package midjourneyapi
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -19,6 +20,7 @@ const ImagineModeTurbo ImagineMode = "turbo"
 
 const StatusWaitingToStart = "waiting-to-start"
 const StatusRunning = "running"
+const StatusComplete = "complete"
 
 type ResultRequest struct {
 	TaskId   string `json:"taskId"`
@@ -135,6 +137,10 @@ func (self *Client) Describe(image io.Reader, callbackURL ...string) (string, er
 		return "", err
 	}
 
+	if res.StatusCode != http.StatusOK {
+		return "", errors.New("Invalid http status code: " + res.Status)
+	}
+
 	resbody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", err
@@ -240,12 +246,12 @@ func (self *Client) Faceswap(targetImageURL string, faceImageURL string) (string
 }
 
 func (self *Client) postJson(path string, request interface{}, response interface{}) error {
-	var body bytes.Buffer
-	if err := json.NewEncoder(&body).Encode(request); err != nil {
+	var reqbody bytes.Buffer
+	if err := json.NewEncoder(&reqbody).Encode(request); err != nil {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, host+path, &body)
+	req, err := http.NewRequest(http.MethodPost, host+path, &reqbody)
 	if err != nil {
 		return err
 	}
@@ -257,7 +263,16 @@ func (self *Client) postJson(path string, request interface{}, response interfac
 		return err
 	}
 
-	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+	if res.StatusCode != http.StatusOK {
+		return errors.New("Invalid status code: " + res.Status)
+	}
+
+	resbody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(resbody, &response); err != nil {
 		return err
 	}
 
